@@ -155,14 +155,30 @@ def prediction_payload(state):
 def request_prediction(state):
     if not API_KEY:
         raise RuntimeError("APP_API_KEY is not configured for the dashboard service.")
-    response = requests.post(
-        f"{API_BASE_URL}/predict",
-        headers={"X-API-Key": API_KEY},
-        json=prediction_payload(state),
-        timeout=90,
+
+    # Wake Render's free API service before loading the model. A sleeping or
+    # restarting instance can briefly return 502/503/504 during a cold start.
+    requests.get(f"{API_BASE_URL}/health", timeout=120)
+
+    transient_statuses = {502, 503, 504}
+    last_response = None
+    for attempt in range(4):
+        last_response = requests.post(
+            f"{API_BASE_URL}/predict",
+            headers={"X-API-Key": API_KEY},
+            json=prediction_payload(state),
+            timeout=120,
+        )
+        if last_response.status_code not in transient_statuses:
+            last_response.raise_for_status()
+            return last_response.json()["ml_prediction"]
+        if attempt < 3:
+            time.sleep(3 * (attempt + 1))
+
+    raise RuntimeError(
+        "The prediction service is still starting. Please retry in one minute "
+        f"(Render returned HTTP {last_response.status_code})."
     )
-    response.raise_for_status()
-    return response.json()["ml_prediction"]
 
 
 if "state" not in st.session_state:
