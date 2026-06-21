@@ -1,8 +1,16 @@
 import os
+import sys
 import time
+from pathlib import Path
 
 import requests
 import streamlit as st
+
+# Streamlit adds the script directory to sys.path. Add the project root so the
+# package imports also work when Render launches motor/dashboard.py directly.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from motor.motor_faults import update_faults
 from motor.motor_health import update_motor_health
