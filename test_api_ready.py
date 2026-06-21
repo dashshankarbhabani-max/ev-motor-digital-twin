@@ -1,11 +1,9 @@
-import os
-
+import pytest
 from fastapi.testclient import TestClient
 
 from api import app
 
 
-os.environ["APP_API_KEY"] = "test-secret-key"
 client = TestClient(app)
 payload = {
     "voltage_v": 400,
@@ -14,6 +12,11 @@ payload = {
     "torque_nm": 200,
     "flux_estimate": 0.8,
 }
+
+
+@pytest.fixture(autouse=True)
+def configured_test_key(monkeypatch):
+    monkeypatch.setenv("APP_API_KEY", "test-secret-key")
 
 
 def test_predict_rejects_missing_api_key():
