@@ -59,7 +59,7 @@ def predict_motor_health(features):
         model_input = artifacts["scaler"].transform(model_input)
 
     encoded_prediction = artifacts["model"].predict(model_input)
-    fault_code = str(
+    model_fault_code = str(
         artifacts["label_encoder"].inverse_transform(encoded_prediction)[0]
     )
 
@@ -76,9 +76,17 @@ def predict_motor_health(features):
         }
         confidence = round(max(probabilities.values()), 6)
 
+    safety_fault_code = str(features.get("detected_fault_code", "NONE"))
+    safety_override = safety_fault_code != "NONE"
+    fault_code = safety_fault_code if safety_override else model_fault_code
+
     return {
         "fault_code": fault_code,
-        "confidence": confidence,
+        "diagnosis_source": "safety_rules" if safety_override else "random_forest",
+        "confidence": None if safety_override else confidence,
+        "model_fault_code": model_fault_code,
+        "model_confidence": confidence,
+        "safety_fault_code": safety_fault_code,
         "class_probabilities": probabilities,
         "failure_probability": float(features.get("failure_probability", 0.0)),
         "rul_hours": float(features.get("rul_hours", 0.0)),

@@ -17,6 +17,8 @@ def run_motor_twin(**values):
     state = update_motor_health(state)
     state = update_faults(state)
     state = update_rul(state, dt_hours=0.1 / 3600)
-    prediction = predict_motor_health(extract_features(state))
+    features = extract_features(state)
+    features["detected_fault_code"] = state.fault_code
+    prediction = predict_motor_health(features)
 
     return {"motor_state": asdict(state), "ml_prediction": prediction}

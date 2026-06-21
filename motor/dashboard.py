@@ -12,6 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from motor.feature_extractor import extract_features
+from motor.motor_ai import predict_motor_health
 from motor.motor_faults import update_faults
 from motor.motor_health import update_motor_health
 from motor.motor_physics import update_motor_physics
@@ -148,8 +150,23 @@ def prediction_payload(state):
         "current_harmonics": state.current_harmonics,
         "insulation_resistance_mohm": state.insulation_resistance_mohm,
         "partial_discharge": state.partial_discharge,
+        "stator_temp_c": state.stator_temp_c,
+        "rotor_temp_c": state.rotor_temp_c,
+        "magnet_temp_c": state.magnet_temp_c,
+        "bearing_temp_c": state.bearing_temp_c,
+        "coolant_in_temp_c": state.coolant_in_temp_c,
+        "coolant_out_temp_c": state.coolant_out_temp_c,
         "rul_hours": state.rul_hours,
     }
+
+
+def local_prediction(state, reason):
+    features = extract_features(state)
+    features["detected_fault_code"] = state.fault_code
+    result = predict_motor_health(features)
+    result["deployment_mode"] = "local_fallback"
+    result["fallback_reason"] = reason
+    return result
 
 
 def request_prediction(state):
@@ -158,27 +175,35 @@ def request_prediction(state):
 
     # Wake Render's free API service before loading the model. A sleeping or
     # restarting instance can briefly return 502/503/504 during a cold start.
-    requests.get(f"{API_BASE_URL}/health", timeout=120)
-
     transient_statuses = {502, 503, 504}
-    last_response = None
-    for attempt in range(4):
-        last_response = requests.post(
-            f"{API_BASE_URL}/predict",
-            headers={"X-API-Key": API_KEY},
-            json=prediction_payload(state),
-            timeout=120,
-        )
-        if last_response.status_code not in transient_statuses:
-            last_response.raise_for_status()
-            return last_response.json()["ml_prediction"]
-        if attempt < 3:
-            time.sleep(3 * (attempt + 1))
+    try:
+        requests.get(f"{API_BASE_URL}/health", timeout=120)
+        last_response = None
+        for attempt in range(4):
+            last_response = requests.post(
+                f"{API_BASE_URL}/predict",
+                headers={"X-API-Key": API_KEY},
+                json=prediction_payload(state),
+                timeout=120,
+            )
+            if last_response.status_code not in transient_statuses:
+                last_response.raise_for_status()
+                result = last_response.json()["ml_prediction"]
+                result["deployment_mode"] = "cloud_api"
+                return result
+            if attempt < 3:
+                time.sleep(3 * (attempt + 1))
 
-    raise RuntimeError(
-        "The prediction service is still starting. Please retry in one minute "
-        f"(Render returned HTTP {last_response.status_code})."
-    )
+        return local_prediction(
+            state,
+            f"Render returned HTTP {last_response.status_code} after retries.",
+        )
+    except requests.HTTPError as error:
+        if error.response is not None and error.response.status_code in {401, 403}:
+            raise
+        return local_prediction(state, str(error))
+    except requests.RequestException as error:
+        return local_prediction(state, str(error))
 
 
 if "state" not in st.session_state:
@@ -292,12 +317,14 @@ health[0].metric("Overall Health", f"{state.overall_health:.2f}%")
 health[1].metric("Failure Probability", f"{state.failure_probability:.2f}%")
 health[2].metric("Remaining Useful Life", f"{state.rul_hours:,.0f} h")
 
-if state.overall_health >= 80:
-    st.success("Healthy motor: all monitored systems are operating normally.")
-elif state.overall_health >= 50:
+if state.failure_probability >= 50:
+    st.error(
+        f"Critical fault risk ({state.fault_code}): stop the motor and inspect immediately."
+    )
+elif state.failure_probability > 0 or state.overall_health < 80:
     st.warning("Motor degradation detected: schedule an inspection.")
 else:
-    st.error("Critical condition: stop the motor and inspect immediately.")
+    st.success("Healthy motor: all monitored systems are operating normally.")
 
 st.markdown('<div class="section-title">◎ ML Predictive Maintenance</div>', unsafe_allow_html=True)
 prediction = st.session_state.ai_output
@@ -308,12 +335,24 @@ elif "error" in prediction:
 else:
     confidence = prediction.get("confidence")
     confidence_text = "N/A" if confidence is None else f"{confidence * 100:.1f}%"
+    diagnosis_source = prediction.get("diagnosis_source", "random_forest")
+    if diagnosis_source == "safety_rules":
+        model_confidence = prediction.get("model_confidence")
+        model_confidence_text = (
+            "N/A" if model_confidence is None else f"{model_confidence * 100:.1f}%"
+        )
+        diagnosis_detail = (
+            "Safety-rule override · Random Forest: "
+            f"{prediction.get('model_fault_code', 'UNKNOWN')} ({model_confidence_text})"
+        )
+    else:
+        diagnosis_detail = f"Random Forest confidence: {confidence_text}"
     st.markdown(
         f"""
         <div class="prediction-card">
             <div class="prediction-label">Predicted motor condition</div>
             <div class="prediction-value">{prediction.get('fault_code', 'UNKNOWN')}</div>
-            <p class="small-note">Model confidence: {confidence_text}</p>
+            <p class="small-note">{diagnosis_detail}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -332,6 +371,11 @@ else:
         f"{prediction.get('rul_hours', 0):,.0f} h",
     )
     anomalies = prediction.get("anomalies", [])
+    if prediction.get("deployment_mode") == "local_fallback":
+        st.warning(
+            "Cloud API was temporarily unavailable. This result was computed "
+            "with the same trained model on the dashboard server."
+        )
     if anomalies:
         st.warning("Detected anomalies: " + ", ".join(anomalies))
     else:

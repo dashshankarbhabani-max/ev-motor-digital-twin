@@ -19,6 +19,13 @@ def update_rul(state: MotorState, dt_hours=1 / 3600):
     if state.rul_hours <= 0:
         state.rul_hours = 20000.0
 
+    # Cap the estimate immediately when current condition indicates elevated
+    # risk. RUL should not remain at the healthy maximum during an active fault.
+    health_factor = max(0.0, min(1.0, state.overall_health / 100))
+    risk_factor = max(0.0, min(1.0, 1 - state.failure_probability / 100))
+    condition_limited_rul = 20000.0 * health_factor * risk_factor
+    state.rul_hours = min(state.rul_hours, condition_limited_rul)
+
     degradation = 0.001
 
     # temperature stress
