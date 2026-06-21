@@ -177,10 +177,8 @@ def update_motor_physics(
     # ----------------------
     if state.vehicle_speed_kmph >= MAX_SPEED_KMPH:
         state.vehicle_speed_kmph = MAX_SPEED_KMPH
-
-    # stop further acceleration
-    if state.filtered_torque > 0:
-        state.filtered_torque = 0
+        if state.filtered_torque > 0:
+            state.filtered_torque = 0
 
     # ----------------------
     # Convert speed to RPM
