@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from motor.feature_extractor import extract_features
-from motor.agent_policy import GUARDIAN_ASSISTIVE, GUARDIAN_MODES
+from motor.agent_policy import AGENTIC_AI_ON, AGENTIC_AI_OPTIONS, AGENTIC_DECISION_RULES
 from motor.genai_supervisor import guardian_mode_help, run_guardian_cycle
 from motor.maintenance_recommendations import build_recommendations
 from motor.motor_ai import predict_motor_health
@@ -349,13 +349,13 @@ with st.sidebar:
     st.caption("Drive the virtual EV motor and monitor its condition.")
     accelerator = st.slider("Accelerator (%)", 0, 100, 0)
     brake = st.slider("Brake (%)", 0, 100, 0)
-    guardian_mode = st.selectbox(
-        "Agentic EV Motor Guardian",
-        GUARDIAN_MODES,
-        index=GUARDIAN_MODES.index(getattr(state, "guardian_mode", GUARDIAN_ASSISTIVE)),
-        help="Choose how much authority the guardian has over the real-time simulation.",
+    agentic_ai = st.selectbox(
+        "Agentic AI",
+        AGENTIC_AI_OPTIONS,
+        index=AGENTIC_AI_OPTIONS.index(getattr(state, "guardian_mode", AGENTIC_AI_ON)),
+        help="Turn autonomous motor protection ON or OFF.",
     )
-    st.caption(guardian_mode_help(guardian_mode))
+    st.caption(guardian_mode_help(agentic_ai))
 
     start_col, stop_col = st.columns(2)
     start = start_col.button("▶ Start", use_container_width=True)
@@ -369,7 +369,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### System")
-    st.write(f"Guardian: {guardian_mode}")
+    st.write(f"Agentic AI: {agentic_ai}")
     st.write("🟢 Motor running" if st.session_state.running else "⚪ Motor stopped")
     st.write("🟢 Prediction API" if cloud_online else "🟠 API starting")
     st.caption(f"Endpoint: {API_BASE_URL}")
@@ -402,7 +402,7 @@ if st.session_state.running:
         state,
         accelerator,
         brake,
-        guardian_mode,
+        agentic_ai,
         dt_s,
     )
     controls = guardian_result["controls"]
@@ -421,7 +421,7 @@ if st.session_state.running:
     state = update_rul(state, dt_hours=dt_s / 3600)
     st.session_state.state = state
 else:
-    state.guardian_mode = guardian_mode
+    state.guardian_mode = agentic_ai
 
 if predict:
     try:
@@ -491,6 +491,9 @@ render_driver_warnings(state.driver_warnings)
 
 st.markdown('<div class="section-title">Guardian Actions</div>', unsafe_allow_html=True)
 render_guardian_actions(state.guardian_actions)
+
+st.markdown('<div class="section-title">Agentic AI Decision Rules</div>', unsafe_allow_html=True)
+st.table(AGENTIC_DECISION_RULES)
 
 st.markdown('<div class="section-title">Recommended Action</div>', unsafe_allow_html=True)
 render_recommendations(live_recommendations(state))

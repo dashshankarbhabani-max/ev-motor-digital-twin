@@ -1,4 +1,4 @@
-from motor.agent_policy import GUARDIAN_ASSISTIVE, GUARDIAN_MONITOR, GUARDIAN_PROTECTIVE
+from motor.agent_policy import AGENTIC_AI_OFF, AGENTIC_AI_ON
 from motor.genai_supervisor import run_guardian_cycle
 from motor.motor_state import MotorState
 
@@ -10,7 +10,7 @@ def test_simultaneous_accelerator_and_brake_warns_and_blocks_acceleration():
         state,
         accelerator_pct=60,
         brake_pct=35,
-        mode=GUARDIAN_ASSISTIVE,
+        agentic_ai_selection=AGENTIC_AI_ON,
         dt_s=0.1,
     )
 
@@ -39,7 +39,7 @@ def test_protective_guardian_prevents_overheating_with_derating_and_cooling():
         state,
         accelerator_pct=100,
         brake_pct=0,
-        mode=GUARDIAN_PROTECTIVE,
+        agentic_ai_selection=AGENTIC_AI_ON,
         dt_s=0.1,
     )
 
@@ -50,18 +50,18 @@ def test_protective_guardian_prevents_overheating_with_derating_and_cooling():
     assert result["controls"]["limp_mode_active"] is True
 
 
-def test_monitor_mode_only_advises_without_applying_control():
+def test_agentic_ai_off_warns_without_applying_control():
     state = MotorState(stator_temp_c=130, coolant_flow_rate=1.0)
 
     result = run_guardian_cycle(
         state,
         accelerator_pct=100,
         brake_pct=0,
-        mode=GUARDIAN_MONITOR,
+        agentic_ai_selection=AGENTIC_AI_OFF,
         dt_s=0.1,
     )
 
-    assert result["actions"]
-    assert all(not action["allowed"] for action in result["actions"])
+    assert result["warnings"]
+    assert result["actions"] == []
     assert result["controls"]["torque_limit_pct"] == 100
     assert result["controls"]["speed_limit_kmph"] == 105

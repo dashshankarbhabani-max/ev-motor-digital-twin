@@ -75,8 +75,8 @@ class MotorState:
     # =========================
     # AGENTIC GUARDIAN
     # =========================
-    guardian_mode: str = "Assistive Guardian Mode"
-    guardian_explanation: str = "Guardian is ready."
+    guardian_mode: str = "ON"
+    guardian_explanation: str = "Agentic AI is ready."
     driver_warnings: list = field(default_factory=list)
     guardian_actions: list = field(default_factory=list)
     limp_mode_active: bool = False

@@ -28,9 +28,6 @@ def validate_guardian_actions(actions):
 
         if action_type == "activate_limp_mode":
             checked["value"] = bool(checked.get("value"))
-            if not checked["value"]:
-                checked["allowed"] = False
-                checked["blocked_reason"] = "Assistive mode can warn strongly but only Protective mode activates limp mode."
 
         if action_type == "block_acceleration_while_braking":
             checked["value"] = bool(checked.get("value"))
