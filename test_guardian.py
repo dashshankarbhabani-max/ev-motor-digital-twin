@@ -64,4 +64,4 @@ def test_agentic_ai_off_warns_without_applying_control():
     assert result["warnings"]
     assert result["actions"] == []
     assert result["controls"]["torque_limit_pct"] == 100
-    assert result["controls"]["speed_limit_kmph"] == 105
+    assert result["controls"]["speed_limit_kmph"] == 150

@@ -6,12 +6,12 @@ from motor.motor_state import MotorState
 # ==========================
 # VEHICLE PARAMETERS
 # ==========================
-GEAR_RATIO = 9.0
-WHEEL_RADIUS = 0.30          # m
+GEAR_RATIO = 8.2
+WHEEL_RADIUS = 0.31          # m
 VEHICLE_MASS = 1700          # kg
-DRIVELINE_EFF = 0.95
-MAX_SPEED_KMPH = 105
-BATTERY_CAPACITY_KWH = 60
+DRIVELINE_EFF = 0.94
+MAX_SPEED_KMPH = 150
+BATTERY_CAPACITY_KWH = 62
 
 
 # ==========================
@@ -50,6 +50,12 @@ def first_order_response(dt_s, time_constant_s):
     dt_s = max(float(dt_s), 0.0)
     time_constant_s = max(float(time_constant_s), 0.01)
     return 1.0 - math.exp(-dt_s / time_constant_s)
+
+
+def motor_power_limited_torque(torque_nm, speed_rpm):
+    omega = 2 * math.pi * max(speed_rpm, 1.0) / 60
+    limit = MOTOR["power_max_kw"] * 1000 / omega
+    return max(-limit, min(limit, torque_nm))
 
 
 # ==========================
@@ -91,9 +97,9 @@ def road_load_force(speed_kmph):
 
     speed_ms = speed_kmph / 3.6
 
-    rolling = 180
+    rolling = VEHICLE_MASS * 9.81 * 0.010
 
-    aero = 0.35 * speed_ms**2
+    aero = 0.40 * speed_ms**2
 
     return rolling + aero
 
@@ -136,6 +142,10 @@ def update_motor_physics(
         target
         - state.filtered_torque
     ) * torque_rate
+    state.filtered_torque = motor_power_limited_torque(
+        state.filtered_torque,
+        state.speed_rpm,
+    )
 
     # ----------------------
     # Vehicle dynamics
@@ -145,11 +155,10 @@ def update_motor_physics(
     )
 
     drive_force = (
-    state.filtered_torque
-    * GEAR_RATIO
-    * DRIVELINE_EFF
-    * 0.55
-    / WHEEL_RADIUS
+        state.filtered_torque
+        * GEAR_RATIO
+        * DRIVELINE_EFF
+        / WHEEL_RADIUS
     )
     
 
@@ -193,9 +202,14 @@ def update_motor_physics(
     state.speed_rpm = kmph_to_rpm(
         state.vehicle_speed_kmph
     )
-    if state.vehicle_speed_kmph >= 105:
-        state.vehicle_speed_kmph = 105
-        state.speed_rpm = kmph_to_rpm(105)
+    if state.vehicle_speed_kmph >= MAX_SPEED_KMPH:
+        state.vehicle_speed_kmph = MAX_SPEED_KMPH
+        state.speed_rpm = kmph_to_rpm(MAX_SPEED_KMPH)
+
+    state.filtered_torque = motor_power_limited_torque(
+        state.filtered_torque,
+        state.speed_rpm,
+    )
 
     # ----------------------
     # Battery SOC

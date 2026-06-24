@@ -17,21 +17,21 @@ MOTOR = {
     # =====================================
     # POWER
     # =====================================
-    "power_nominal_kw": 150,
-    "power_max_kw": 180,
+    "power_nominal_kw": 110,
+    "power_max_kw": 160,
 
     # =====================================
     # TORQUE
     # =====================================
     "torque_nominal_nm": 250,
-    "torque_max_nm": 350,
-    "torque_min_nm": -150,
+    "torque_max_nm": 340,
+    "torque_min_nm": -160,
 
     # =====================================
     # SPEED LIMITS
     # =====================================
-    # Around 110 km/h with your wheel radius
-    "speed_max_rpm": 1000,
+    # Compact EV traction motors commonly operate above 10,000 rpm.
+    "speed_max_rpm": 11300,
 
     # =====================================
     # EFFICIENCY

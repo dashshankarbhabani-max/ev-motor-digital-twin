@@ -1,6 +1,12 @@
-MAX_DRIVE_TORQUE_NM = 200.0
-MAX_BRAKE_TORQUE_NM = 80.0
-DEFAULT_SPEED_LIMIT_KMPH = 105.0
+import math
+
+from motor.motor_params import MOTOR
+
+
+MAX_DRIVE_TORQUE_NM = MOTOR["torque_max_nm"]
+MAX_BRAKE_TORQUE_NM = abs(MOTOR["torque_min_nm"])
+MAX_MOTOR_POWER_KW = MOTOR["power_max_kw"]
+DEFAULT_SPEED_LIMIT_KMPH = 150.0
 DEFAULT_COOLANT_FLOW = 1.0
 
 
@@ -30,6 +36,12 @@ def _has_allowed(actions, action_type):
     return any(action.get("type") == action_type for action in _allowed(actions))
 
 
+def _power_limited_torque_nm(speed_rpm):
+    omega = 2 * math.pi * max(float(speed_rpm), 1.0) / 60
+    power_limited = MAX_MOTOR_POWER_KW * 1000 / omega
+    return min(MAX_DRIVE_TORQUE_NM, power_limited)
+
+
 def execute_guardian_actions(state, accelerator_pct, brake_pct, actions):
     """Apply validated guardian actions to the driver command."""
     effective_accelerator = float(accelerator_pct)
@@ -57,10 +69,14 @@ def execute_guardian_actions(state, accelerator_pct, brake_pct, actions):
     if state.vehicle_speed_kmph >= speed_limit_kmph and effective_accelerator > 0:
         effective_accelerator = 0.0
 
+    available_torque_nm = _power_limited_torque_nm(state.speed_rpm)
+    if state.battery_soc < 20:
+        available_torque_nm *= max(0.45, state.battery_soc / 20)
+
     target_torque_nm = (
         effective_accelerator
         / 100.0
-        * MAX_DRIVE_TORQUE_NM
+        * available_torque_nm
         * torque_limit_pct
         / 100.0
     )
