@@ -20,6 +20,9 @@ def test_dashboard_renders_complete_motor_interface():
     }
     assert len(app.metric) == 15
     assert any("Healthy motor" in message.value for message in app.success)
+    markdown_text = "\n".join(message.value for message in app.markdown)
+    assert "Recommended Action" in markdown_text
+    assert "Continue operation" in markdown_text
 
 
 @pytest.mark.skipif(not os.getenv("APP_API_KEY"), reason="APP_API_KEY is required")

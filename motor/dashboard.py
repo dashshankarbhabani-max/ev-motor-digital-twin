@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+from html import escape
 from pathlib import Path
 
 import requests
@@ -13,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from motor.feature_extractor import extract_features
+from motor.maintenance_recommendations import build_recommendations
 from motor.motor_ai import predict_motor_health
 from motor.motor_faults import update_faults
 from motor.motor_health import update_motor_health
@@ -103,6 +105,33 @@ st.markdown(
     .prediction-label { color: #475569; font-size: 0.8rem; text-transform: uppercase; }
     .prediction-value { color: #0f172a; font-size: 1.35rem; font-weight: 750; }
     .small-note { color: #64748b; font-size: 0.82rem; }
+    .recommendation-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-left: 6px solid #10b981;
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin: 10px 0;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+    }
+    .recommendation-critical { border-left-color: #ef4444; }
+    .recommendation-warning { border-left-color: #f59e0b; }
+    .recommendation-normal { border-left-color: #10b981; }
+    .recommendation-severity {
+        color: #475569;
+        font-size: 0.75rem;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .recommendation-part {
+        color: #0f172a;
+        font-size: 1.05rem;
+        font-weight: 750;
+        margin-top: 3px;
+    }
+    .recommendation-text { color: #334155; margin-top: 7px; }
+    .recommendation-fix { color: #0f172a; margin-top: 7px; font-weight: 600; }
     #MainMenu, footer { visibility: hidden; }
     </style>
     """,
@@ -204,6 +233,29 @@ def request_prediction(state):
         return local_prediction(state, str(error))
     except requests.RequestException as error:
         return local_prediction(state, str(error))
+
+
+def live_recommendations(state):
+    features = extract_features(state)
+    features["fault_code"] = state.fault_code
+    return build_recommendations(features, fault_code=state.fault_code)
+
+
+def render_recommendations(recommendations):
+    for recommendation in recommendations:
+        severity = recommendation.get("severity", "normal")
+        st.markdown(
+            f"""
+            <div class="recommendation-card recommendation-{escape(severity)}">
+                <div class="recommendation-severity">{escape(severity)}</div>
+                <div class="recommendation-part">{escape(recommendation.get('part', 'Motor system'))}</div>
+                <div class="recommendation-text"><b>Action:</b> {escape(recommendation.get('action', 'Continue monitoring.'))}</div>
+                <div class="recommendation-text"><b>Reason:</b> {escape(recommendation.get('issue', 'No issue detected.'))}</div>
+                <div class="recommendation-fix">Fix: {escape(recommendation.get('fix', 'No repair is required right now.'))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 if "state" not in st.session_state:
@@ -326,6 +378,9 @@ elif state.failure_probability > 0 or state.overall_health < 80:
 else:
     st.success("Healthy motor: all monitored systems are operating normally.")
 
+st.markdown('<div class="section-title">Recommended Action</div>', unsafe_allow_html=True)
+render_recommendations(live_recommendations(state))
+
 st.markdown('<div class="section-title">◎ ML Predictive Maintenance</div>', unsafe_allow_html=True)
 prediction = st.session_state.ai_output
 if not prediction:
@@ -380,6 +435,13 @@ else:
         st.warning("Detected anomalies: " + ", ".join(anomalies))
     else:
         st.success("No anomalies detected by the trained model.")
+    prediction_recommendations = prediction.get("recommendations", [])
+    if prediction_recommendations:
+        st.markdown(
+            '<div class="section-title">ML Recommended Action</div>',
+            unsafe_allow_html=True,
+        )
+        render_recommendations(prediction_recommendations)
 
 st.caption("EV Motor Digital Twin · Physics + Thermal + Health + Random Forest ML")
 

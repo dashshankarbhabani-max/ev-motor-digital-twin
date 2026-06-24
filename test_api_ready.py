@@ -57,3 +57,7 @@ def test_predict_uses_live_thermal_state_for_fault_and_rul():
     assert result["ml_prediction"]["failure_probability"] >= 80
     assert result["ml_prediction"]["fault_code"] != "NONE"
     assert result["ml_prediction"]["diagnosis_source"] == "safety_rules"
+    recommendations = result["ml_prediction"]["recommendations"]
+    assert recommendations
+    assert recommendations[0]["severity"] == "critical"
+    assert "Stop" in recommendations[0]["action"]

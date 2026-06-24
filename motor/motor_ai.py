@@ -4,6 +4,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from motor.maintenance_recommendations import build_recommendations
+
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 
@@ -92,4 +94,5 @@ def predict_motor_health(features):
         "rul_hours": float(features.get("rul_hours", 0.0)),
         "health_score": float(features.get("overall_health", 0.0)),
         "anomalies": _anomalies(features, fault_code),
+        "recommendations": build_recommendations(features, fault_code=fault_code),
     }
