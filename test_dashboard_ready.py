@@ -18,9 +18,14 @@ def test_dashboard_renders_complete_motor_interface():
         "↻ Reset Simulation",
         "◎ Predict ML Health",
     }
-    assert len(app.metric) == 15
+    assert len(app.selectbox) == 1
+    assert app.selectbox[0].label == "Agentic EV Motor Guardian"
+    assert len(app.metric) >= 22
     assert any("Healthy motor" in message.value for message in app.success)
     markdown_text = "\n".join(message.value for message in app.markdown)
+    assert "Agentic EV Motor Guardian" in markdown_text
+    assert "Driving Behavior Warnings" in markdown_text
+    assert "Guardian Actions" in markdown_text
     assert "Recommended Action" in markdown_text
     assert "Continue operation" in markdown_text
 

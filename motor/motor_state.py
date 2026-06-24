@@ -73,6 +73,22 @@ class MotorState:
     fault_flags: dict = field(default_factory=dict)
 
     # =========================
+    # AGENTIC GUARDIAN
+    # =========================
+    guardian_mode: str = "Assistive Guardian Mode"
+    guardian_explanation: str = "Guardian is ready."
+    driver_warnings: list = field(default_factory=list)
+    guardian_actions: list = field(default_factory=list)
+    limp_mode_active: bool = False
+    torque_limit_pct: float = 100.0
+    speed_limit_kmph: float = 105.0
+    cooling_boost_active: bool = False
+    effective_accelerator_pct: float = 0.0
+    effective_brake_pct: float = 0.0
+    last_accelerator_pct: float = 0.0
+    last_brake_pct: float = 0.0
+
+    # =========================
     # INTERNAL STATES
     # =========================
     filtered_torque: float = 0.0

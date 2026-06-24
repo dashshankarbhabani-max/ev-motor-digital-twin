@@ -14,6 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from motor.feature_extractor import extract_features
+from motor.agent_policy import GUARDIAN_ASSISTIVE, GUARDIAN_MODES
+from motor.genai_supervisor import guardian_mode_help, run_guardian_cycle
 from motor.maintenance_recommendations import build_recommendations
 from motor.motor_ai import predict_motor_health
 from motor.motor_faults import update_faults
@@ -132,6 +134,23 @@ st.markdown(
     }
     .recommendation-text { color: #334155; margin-top: 7px; }
     .recommendation-fix { color: #0f172a; margin-top: 7px; font-weight: 600; }
+    .guardian-card {
+        background: linear-gradient(135deg, #eef2ff 0%, #ecfeff 100%);
+        border: 1px solid #c7d2fe;
+        border-radius: 16px;
+        padding: 16px 18px;
+        margin: 10px 0;
+    }
+    .guardian-action {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin: 8px 0;
+    }
+    .guardian-critical { border-left: 5px solid #ef4444; }
+    .guardian-warning { border-left: 5px solid #f59e0b; }
+    .guardian-normal { border-left: 5px solid #10b981; }
     #MainMenu, footer { visibility: hidden; }
     </style>
     """,
@@ -258,12 +277,58 @@ def render_recommendations(recommendations):
         )
 
 
+def render_driver_warnings(warnings):
+    if not warnings:
+        st.success("Driving inputs look smooth and safe.")
+        return
+
+    for warning in warnings:
+        severity = warning.get("severity", "warning")
+        st.markdown(
+            f"""
+            <div class="guardian-action guardian-{escape(severity)}">
+                <b>{escape(warning.get('title', 'Driving warning'))}</b><br>
+                {escape(warning.get('message', 'Input behavior needs attention.'))}<br>
+                <span class="small-note">Do this: {escape(warning.get('corrective_action', 'Drive smoothly.'))}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_guardian_actions(actions):
+    applied = [action for action in actions if action.get("allowed", True)]
+    advisory = [action for action in actions if not action.get("allowed", True)]
+
+    if not applied and not advisory:
+        st.success("Guardian is observing. No control action is needed right now.")
+        return
+
+    for action in applied + advisory:
+        severity = action.get("severity", "normal")
+        status = "Applied" if action.get("allowed", True) else "Advisory only"
+        value = action.get("value")
+        value_text = "" if value is None else f" Value: {value}"
+        st.markdown(
+            f"""
+            <div class="guardian-action guardian-{escape(severity)}">
+                <b>{escape(status)} - {escape(action.get('type', 'guardian_action'))}</b><br>
+                {escape(action.get('reason', 'Guardian action.'))}<br>
+                <span class="small-note">{escape(value_text)}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 if "state" not in st.session_state:
     st.session_state.state = new_motor_state()
 if "running" not in st.session_state:
     st.session_state.running = False
 if "ai_output" not in st.session_state:
     st.session_state.ai_output = None
+if "last_update_time" not in st.session_state:
+    st.session_state.last_update_time = time.monotonic()
 
 state = st.session_state.state
 cloud_online = api_is_healthy()
@@ -284,6 +349,13 @@ with st.sidebar:
     st.caption("Drive the virtual EV motor and monitor its condition.")
     accelerator = st.slider("Accelerator (%)", 0, 100, 0)
     brake = st.slider("Brake (%)", 0, 100, 0)
+    guardian_mode = st.selectbox(
+        "Agentic EV Motor Guardian",
+        GUARDIAN_MODES,
+        index=GUARDIAN_MODES.index(getattr(state, "guardian_mode", GUARDIAN_ASSISTIVE)),
+        help="Choose how much authority the guardian has over the real-time simulation.",
+    )
+    st.caption(guardian_mode_help(guardian_mode))
 
     start_col, stop_col = st.columns(2)
     start = start_col.button("▶ Start", use_container_width=True)
@@ -297,12 +369,14 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### System")
+    st.write(f"Guardian: {guardian_mode}")
     st.write("🟢 Motor running" if st.session_state.running else "⚪ Motor stopped")
     st.write("🟢 Prediction API" if cloud_online else "🟠 API starting")
     st.caption(f"Endpoint: {API_BASE_URL}")
 
 if start:
     st.session_state.running = True
+    st.session_state.last_update_time = time.monotonic()
 
 if stop:
     st.session_state.running = False
@@ -316,24 +390,38 @@ if reset:
     st.session_state.state = new_motor_state()
     st.session_state.running = False
     st.session_state.ai_output = None
+    st.session_state.last_update_time = time.monotonic()
     st.rerun()
 
 if st.session_state.running:
-    target_torque = accelerator * 2.0
-    state.torque_nm += (target_torque - state.torque_nm) * 0.08
+    now = time.monotonic()
+    dt_s = max(0.05, min(now - st.session_state.last_update_time, 0.5))
+    st.session_state.last_update_time = now
+
+    guardian_result = run_guardian_cycle(
+        state,
+        accelerator,
+        brake,
+        guardian_mode,
+        dt_s,
+    )
+    controls = guardian_result["controls"]
+
+    target_torque = controls["target_torque_nm"]
+    state.torque_nm += (target_torque - state.torque_nm) * min(0.22, dt_s * 1.8)
     state.current_a = abs(state.torque_nm) * 1.4
 
-    if brake > 0:
-        state.torque_nm = -80 * (brake / 100)
-        if state.vehicle_speed_kmph < 5:
-            state.torque_nm = 0
+    if state.effective_brake_pct > 0 and state.vehicle_speed_kmph < 5:
+        state.torque_nm = 0
 
-    state = update_motor_physics(state, dt_s=0.1)
-    state = update_motor_thermal(state, state.total_loss_w, dt_s=0.1)
+    state = update_motor_physics(state, dt_s=dt_s)
+    state = update_motor_thermal(state, state.total_loss_w, dt_s=dt_s)
     state = update_motor_health(state)
     state = update_faults(state)
-    state = update_rul(state, dt_hours=0.1 / 3600)
+    state = update_rul(state, dt_hours=dt_s / 3600)
     st.session_state.state = state
+else:
+    state.guardian_mode = guardian_mode
 
 if predict:
     try:
@@ -377,6 +465,32 @@ elif state.failure_probability > 0 or state.overall_health < 80:
     st.warning("Motor degradation detected: schedule an inspection.")
 else:
     st.success("Healthy motor: all monitored systems are operating normally.")
+
+st.markdown('<div class="section-title">Agentic EV Motor Guardian</div>', unsafe_allow_html=True)
+guardian_metrics = st.columns(4)
+guardian_metrics[0].metric("Effective Accelerator", f"{state.effective_accelerator_pct:.0f}%")
+guardian_metrics[1].metric("Effective Brake", f"{state.effective_brake_pct:.0f}%")
+guardian_metrics[2].metric("Torque Limit", f"{state.torque_limit_pct:.0f}%")
+guardian_metrics[3].metric("Speed Limit", f"{state.speed_limit_kmph:.0f} km/h")
+cooling_metrics = st.columns(3)
+cooling_metrics[0].metric("Cooling Flow", f"{state.coolant_flow_rate:.2f}x")
+cooling_metrics[1].metric("Cooling Boost", "ON" if state.cooling_boost_active else "OFF")
+cooling_metrics[2].metric("Limp Mode", "ON" if state.limp_mode_active else "OFF")
+st.markdown(
+    f"""
+    <div class="guardian-card">
+        <b>{escape(state.guardian_mode)}</b><br>
+        {escape(state.guardian_explanation)}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown('<div class="section-title">Driving Behavior Warnings</div>', unsafe_allow_html=True)
+render_driver_warnings(state.driver_warnings)
+
+st.markdown('<div class="section-title">Guardian Actions</div>', unsafe_allow_html=True)
+render_guardian_actions(state.guardian_actions)
 
 st.markdown('<div class="section-title">Recommended Action</div>', unsafe_allow_html=True)
 render_recommendations(live_recommendations(state))
@@ -443,7 +557,7 @@ else:
         )
         render_recommendations(prediction_recommendations)
 
-st.caption("EV Motor Digital Twin · Physics + Thermal + Health + Random Forest ML")
+st.caption("EV Motor Digital Twin · Physics + Thermal + Health + Random Forest ML + Agentic Guardian")
 
 if st.session_state.running:
     time.sleep(0.12)
