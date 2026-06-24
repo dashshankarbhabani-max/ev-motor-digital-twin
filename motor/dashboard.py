@@ -395,7 +395,7 @@ if reset:
 
 if st.session_state.running:
     now = time.monotonic()
-    dt_s = max(0.05, min(now - st.session_state.last_update_time, 0.5))
+    dt_s = max(0.10, min(now - st.session_state.last_update_time, 1.0))
     st.session_state.last_update_time = now
 
     guardian_result = run_guardian_cycle(
@@ -408,8 +408,7 @@ if st.session_state.running:
     controls = guardian_result["controls"]
 
     target_torque = controls["target_torque_nm"]
-    state.torque_nm += (target_torque - state.torque_nm) * min(0.22, dt_s * 1.8)
-    state.current_a = abs(state.torque_nm) * 1.4
+    state.torque_nm += (target_torque - state.torque_nm) * min(0.28, dt_s / 1.2)
 
     if state.effective_brake_pct > 0 and state.vehicle_speed_kmph < 5:
         state.torque_nm = 0
@@ -563,5 +562,5 @@ else:
 st.caption("EV Motor Digital Twin · Physics + Thermal + Health + Random Forest ML + Agentic Guardian")
 
 if st.session_state.running:
-    time.sleep(0.12)
+    time.sleep(0.45)
     st.rerun()

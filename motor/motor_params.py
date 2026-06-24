@@ -71,7 +71,7 @@ MOTOR = {
     # COOLING
     # =====================================
     "coolant_nominal_flow": 1.0,
-    "coolant_max_flow": 2.5,
+    "coolant_max_flow": 3.0,
 
     # =====================================
     # HEALTH MODEL

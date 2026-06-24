@@ -46,6 +46,12 @@ def efficiency(pin_kw, pout_kw):
     return max(0.0, min(1.0, pout_kw / pin_kw))
 
 
+def first_order_response(dt_s, time_constant_s):
+    dt_s = max(float(dt_s), 0.0)
+    time_constant_s = max(float(time_constant_s), 0.01)
+    return 1.0 - math.exp(-dt_s / time_constant_s)
+
+
 # ==========================
 # RPM -> VEHICLE SPEED
 # ==========================
@@ -99,6 +105,7 @@ def update_motor_physics(
     state: MotorState,
     dt_s: float = 0.1
 ):
+    dt_s = max(0.02, min(float(dt_s), 1.0))
 
     # ----------------------
     # Initialize variables
@@ -123,7 +130,7 @@ def update_motor_physics(
     # ----------------------
     target = state.torque_nm
 
-    torque_rate = 0.08
+    torque_rate = first_order_response(dt_s, 0.9)
 
     state.filtered_torque += (
         target
@@ -200,27 +207,43 @@ def update_motor_physics(
         )
     )
 
-    energy_used = (
-        state.power_kw
-        * dt_s
-        / 3600
+    preliminary_current = (
+        abs(state.filtered_torque) * 1.15
+        + abs(state.power_kw) * 1000 / max(state.voltage_v, 250) * 0.25
     )
-
-    soc_drop = (
-        energy_used
-        / BATTERY_CAPACITY_KWH
-        * 100
+    voltage_from_soc = MOTOR["voltage_nominal_v"] * (
+        0.88 + 0.14 * (state.battery_soc / 100)
     )
+    voltage_sag = preliminary_current * 0.035
+    target_voltage = max(
+        MOTOR["voltage_min_v"],
+        min(MOTOR["voltage_max_v"], voltage_from_soc - voltage_sag),
+    )
+    state.voltage_v += (target_voltage - state.voltage_v) * first_order_response(dt_s, 2.0)
+    state.current_a += (preliminary_current - state.current_a) * first_order_response(dt_s, 0.45)
 
-    state.battery_soc -= soc_drop
-
-    state.battery_soc = max(
-        0,
-        min(
-            state.battery_soc,
-            100
+    if state.power_kw > 0:
+        energy_used = (
+            state.power_kw
+            * dt_s
+            / 3600
         )
-    )
+
+        soc_drop = (
+            energy_used
+            / BATTERY_CAPACITY_KWH
+            * 100
+        )
+
+        state.battery_soc -= soc_drop
+
+        state.battery_soc = max(
+            0,
+            min(
+                state.battery_soc,
+                100
+            )
+        )
 
     # ----------------------
     # Regenerative braking
@@ -259,7 +282,7 @@ def update_motor_physics(
 
     state.copper_loss_w = (
         copper_loss_w(
-            state.current_a,
+        state.current_a,
             MOTOR[
                 "stator_resistance_ohm"
             ]
