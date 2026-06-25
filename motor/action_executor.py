@@ -36,6 +36,16 @@ def _has_allowed(actions, action_type):
     return any(action.get("type") == action_type for action in _allowed(actions))
 
 
+def _thermal_stop_target(actions):
+    values = [
+        float(action["value"])
+        for action in _allowed(actions)
+        if action.get("type") == "thermal_emergency_stop"
+        and action.get("value") is not None
+    ]
+    return min(values) if values else None
+
+
 def _power_limited_torque_nm(speed_rpm):
     omega = 2 * math.pi * max(float(speed_rpm), 1.0) / 60
     power_limited = MAX_MOTOR_POWER_KW * 1000 / omega
@@ -62,6 +72,17 @@ def execute_guardian_actions(state, accelerator_pct, brake_pct, actions):
         "increase_cooling",
         DEFAULT_COOLANT_FLOW,
     )
+    thermal_stop_target = _thermal_stop_target(actions)
+    thermal_stop_active = thermal_stop_target is not None
+    if thermal_stop_active:
+        speed_limit_kmph = min(speed_limit_kmph, thermal_stop_target)
+        effective_accelerator = 0.0
+        speed_error = max(0.0, state.vehicle_speed_kmph - thermal_stop_target)
+        if state.vehicle_speed_kmph > 0.5:
+            effective_brake = max(
+                effective_brake,
+                min(70.0, max(15.0, speed_error * 2.0)),
+            )
 
     if effective_brake > brake_limit_pct:
         effective_brake = brake_limit_pct
@@ -86,6 +107,11 @@ def execute_guardian_actions(state, accelerator_pct, brake_pct, actions):
 
     if state.vehicle_speed_kmph > speed_limit_kmph + 2:
         target_torque_nm = min(target_torque_nm, -35.0)
+    if thermal_stop_active and state.vehicle_speed_kmph > 0.5:
+        target_torque_nm = min(
+            target_torque_nm,
+            -MAX_BRAKE_TORQUE_NM * (effective_brake / 100.0),
+        )
 
     limp_mode_active = _has_allowed(actions, "activate_limp_mode")
     if limp_mode_active:
@@ -108,4 +134,8 @@ def execute_guardian_actions(state, accelerator_pct, brake_pct, actions):
         "speed_limit_kmph": speed_limit_kmph,
         "coolant_flow_rate": state.coolant_flow_rate,
         "limp_mode_active": limp_mode_active,
+        "thermal_shutdown_active": thermal_stop_active,
+        "thermal_shutdown_target_speed_kmph": (
+            thermal_stop_target if thermal_stop_active else DEFAULT_SPEED_LIMIT_KMPH
+        ),
     }

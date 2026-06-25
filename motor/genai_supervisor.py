@@ -58,7 +58,7 @@ def run_guardian_cycle(state, accelerator_pct, brake_pct, agentic_ai_selection, 
         selection = AGENTIC_AI_ON
 
     warnings = analyze_driver_inputs(state, accelerator_pct, brake_pct, dt_s)
-    proposed_actions = plan_guardian_actions(state, warnings, _enabled(selection))
+    proposed_actions = plan_guardian_actions(state, warnings, _enabled(selection), dt_s)
     safe_actions = validate_guardian_actions(proposed_actions)
     controls = execute_guardian_actions(state, accelerator_pct, brake_pct, safe_actions)
 

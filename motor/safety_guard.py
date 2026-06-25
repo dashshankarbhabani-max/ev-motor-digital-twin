@@ -2,6 +2,7 @@ CONTROL_LIMITS = {
     "limit_torque_pct": (0.0, 100.0),
     "limit_brake_pct": (0.0, 100.0),
     "limit_speed_kmph": (20.0, 150.0),
+    "thermal_emergency_stop": (0.0, 150.0),
     "increase_cooling": (1.0, 3.0),
 }
 

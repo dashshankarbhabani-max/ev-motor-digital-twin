@@ -475,6 +475,21 @@ cooling_metrics = st.columns(3)
 cooling_metrics[0].metric("Cooling Flow", f"{state.coolant_flow_rate:.2f}x")
 cooling_metrics[1].metric("Cooling Boost", "ON" if state.cooling_boost_active else "OFF")
 cooling_metrics[2].metric("Limp Mode", "ON" if state.limp_mode_active else "OFF")
+shutdown_metrics = st.columns(3)
+shutdown_metrics[0].metric(
+    "Thermal Stop",
+    "COMPLETE" if state.thermal_shutdown_complete else ("ACTIVE" if state.thermal_shutdown_active else "OFF"),
+)
+shutdown_metrics[1].metric(
+    "Stop Target Speed",
+    f"{state.thermal_shutdown_target_speed_kmph:.0f} km/h",
+)
+shutdown_metrics[2].metric(
+    "Stop Timer",
+    f"{state.thermal_shutdown_elapsed_s:.0f} s",
+)
+if state.thermal_shutdown_active:
+    st.error(state.thermal_shutdown_reminder)
 st.markdown(
     f"""
     <div class="guardian-card">

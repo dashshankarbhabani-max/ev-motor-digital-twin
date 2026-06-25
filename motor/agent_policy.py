@@ -3,6 +3,14 @@ AGENTIC_AI_ON = "ON"
 
 AGENTIC_AI_OPTIONS = [AGENTIC_AI_OFF, AGENTIC_AI_ON]
 
+THERMAL_EMERGENCY_LIMITS = {
+    "stator_temp_c": 150,
+    "rotor_temp_c": 135,
+    "magnet_temp_c": 145,
+    "bearing_temp_c": 110,
+}
+THERMAL_SHUTDOWN_DECEL_KMPH_PER_S = 9.0
+
 AGENTIC_DECISION_RULES = [
     {
         "situation": "Early thermal rise",
@@ -18,6 +26,11 @@ AGENTIC_DECISION_RULES = [
         "situation": "Critical overheating risk",
         "condition": "Temperature reaches the critical protection band.",
         "agent_action": "Maximum cooling, heavy torque derating, speed limit, and limp mode.",
+    },
+    {
+        "situation": "Thermal emergency stop",
+        "condition": "Any motor part reaches a very high emergency temperature.",
+        "agent_action": "Warn the user, remove drive torque, gradually reduce speed, and finally stop the car.",
     },
     {
         "situation": "Cooling failure",
@@ -106,13 +119,113 @@ def _thermal_stage(state):
     return "normal"
 
 
-def plan_guardian_actions(state, driver_warnings, agentic_ai_enabled):
+def _thermal_emergency_detected(state):
+    return any(
+        float(getattr(state, attr)) >= limit
+        for attr, limit in THERMAL_EMERGENCY_LIMITS.items()
+    )
+
+
+def _hottest_part_label(state):
+    labels = {
+        "stator_temp_c": "stator",
+        "rotor_temp_c": "rotor",
+        "magnet_temp_c": "rotor magnet",
+        "bearing_temp_c": "bearing",
+    }
+    hottest_attr = max(labels, key=lambda attr: float(getattr(state, attr)))
+    return labels[hottest_attr], float(getattr(state, hottest_attr))
+
+
+def _update_thermal_shutdown_state(state, dt_s):
+    dt_s = max(float(dt_s), 0.0)
+    emergency_now = _thermal_emergency_detected(state)
+
+    if emergency_now and not state.thermal_shutdown_active:
+        state.thermal_shutdown_active = True
+        state.thermal_shutdown_complete = False
+        state.thermal_shutdown_elapsed_s = 0.0
+        state.thermal_shutdown_start_speed_kmph = max(state.vehicle_speed_kmph, 5.0)
+
+    if state.thermal_shutdown_active and not state.thermal_shutdown_complete:
+        state.thermal_shutdown_elapsed_s += dt_s
+        target_speed = max(
+            0.0,
+            state.thermal_shutdown_start_speed_kmph
+            - THERMAL_SHUTDOWN_DECEL_KMPH_PER_S * state.thermal_shutdown_elapsed_s,
+        )
+        state.thermal_shutdown_target_speed_kmph = target_speed
+        part, temperature = _hottest_part_label(state)
+        state.thermal_shutdown_reminder = (
+            f"Thermal emergency: {part} temperature is {temperature:.1f} C. "
+            "Agentic AI is gradually slowing the car and will stop it to prevent damage."
+        )
+        if target_speed <= 0.0 and state.vehicle_speed_kmph <= 1.0:
+            state.thermal_shutdown_complete = True
+            state.thermal_shutdown_target_speed_kmph = 0.0
+            state.thermal_shutdown_reminder = (
+                "Thermal emergency stop complete. Keep the car stopped and inspect the motor cooling system."
+            )
+
+    return state.thermal_shutdown_active
+
+
+def plan_guardian_actions(state, driver_warnings, agentic_ai_enabled, dt_s=0.1):
     """Plan safe deterministic actions for Agentic AI ON/OFF control."""
     if not agentic_ai_enabled:
         return []
 
     actions = []
     thermal_stage = _thermal_stage(state)
+    thermal_shutdown_active = _update_thermal_shutdown_state(state, dt_s)
+
+    if thermal_shutdown_active:
+        actions.extend(
+            [
+                _action(
+                    "alert_driver",
+                    "critical",
+                    state.thermal_shutdown_reminder,
+                    True,
+                    "Thermal emergency stop",
+                ),
+                _action(
+                    "thermal_emergency_stop",
+                    "critical",
+                    "Emergency thermal stop is active: drive torque is removed and speed target is ramped down.",
+                    state.thermal_shutdown_target_speed_kmph,
+                    "Thermal emergency stop",
+                ),
+                _action(
+                    "increase_cooling",
+                    "critical",
+                    "Cooling is held at maximum during emergency shutdown.",
+                    3.0,
+                    "Thermal emergency stop",
+                ),
+                _action(
+                    "limit_torque_pct",
+                    "critical",
+                    "Drive torque is removed during emergency shutdown.",
+                    0,
+                    "Thermal emergency stop",
+                ),
+                _action(
+                    "limit_speed_kmph",
+                    "critical",
+                    "The speed target is gradually reduced until the car stops.",
+                    state.thermal_shutdown_target_speed_kmph,
+                    "Thermal emergency stop",
+                ),
+                _action(
+                    "activate_limp_mode",
+                    "critical",
+                    "Limp mode stays active during thermal emergency shutdown.",
+                    True,
+                    "Thermal emergency stop",
+                ),
+            ]
+        )
 
     if thermal_stage == "watch":
         actions.extend(

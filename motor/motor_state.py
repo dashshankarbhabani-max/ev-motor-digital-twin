@@ -81,12 +81,18 @@ class MotorState:
     guardian_actions: list = field(default_factory=list)
     limp_mode_active: bool = False
     torque_limit_pct: float = 100.0
-    speed_limit_kmph: float = 105.0
+    speed_limit_kmph: float = 150.0
     cooling_boost_active: bool = False
     effective_accelerator_pct: float = 0.0
     effective_brake_pct: float = 0.0
     last_accelerator_pct: float = 0.0
     last_brake_pct: float = 0.0
+    thermal_shutdown_active: bool = False
+    thermal_shutdown_complete: bool = False
+    thermal_shutdown_elapsed_s: float = 0.0
+    thermal_shutdown_start_speed_kmph: float = 0.0
+    thermal_shutdown_target_speed_kmph: float = 150.0
+    thermal_shutdown_reminder: str = ""
 
     # =========================
     # INTERNAL STATES

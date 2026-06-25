@@ -1,6 +1,8 @@
 from motor.agent_policy import AGENTIC_AI_OFF, AGENTIC_AI_ON
 from motor.genai_supervisor import run_guardian_cycle
+from motor.motor_physics import update_motor_physics
 from motor.motor_state import MotorState
+from motor.motor_thermal import update_motor_thermal
 
 
 def test_simultaneous_accelerator_and_brake_warns_and_blocks_acceleration():
@@ -65,3 +67,51 @@ def test_agentic_ai_off_warns_without_applying_control():
     assert result["actions"] == []
     assert result["controls"]["torque_limit_pct"] == 100
     assert result["controls"]["speed_limit_kmph"] == 150
+
+
+def test_thermal_emergency_stop_gives_reminder_and_ramps_speed_down():
+    state = MotorState(
+        vehicle_speed_kmph=80,
+        stator_temp_c=155,
+        rotor_temp_c=130,
+        magnet_temp_c=140,
+        bearing_temp_c=100,
+    )
+
+    first = run_guardian_cycle(state, 100, 0, AGENTIC_AI_ON, 1.0)
+    first_target = state.thermal_shutdown_target_speed_kmph
+    second = run_guardian_cycle(state, 100, 0, AGENTIC_AI_ON, 1.0)
+
+    action_types = {action["type"] for action in second["actions"] if action["allowed"]}
+
+    assert state.thermal_shutdown_active is True
+    assert "thermal_emergency_stop" in action_types
+    assert "Thermal emergency" in state.thermal_shutdown_reminder
+    assert state.thermal_shutdown_target_speed_kmph < first_target
+    assert second["controls"]["effective_accelerator_pct"] == 0
+    assert second["controls"]["effective_brake_pct"] > 0
+
+
+def test_thermal_emergency_stop_finally_stops_the_car():
+    state = MotorState(
+        voltage_v=400,
+        battery_soc=100,
+        vehicle_speed_kmph=80,
+        stator_temp_c=155,
+        rotor_temp_c=130,
+        magnet_temp_c=140,
+        bearing_temp_c=100,
+        coolant_flow_rate=1.0,
+    )
+
+    for _ in range(30):
+        guardian = run_guardian_cycle(state, 100, 0, AGENTIC_AI_ON, 1.0)
+        state.torque_nm += (
+            guardian["controls"]["target_torque_nm"] - state.torque_nm
+        ) * 0.28
+        state = update_motor_physics(state, dt_s=1.0)
+        state = update_motor_thermal(state, state.total_loss_w, dt_s=1.0)
+
+    assert state.vehicle_speed_kmph == 0
+    assert state.thermal_shutdown_complete is True
+    assert state.thermal_shutdown_target_speed_kmph == 0
